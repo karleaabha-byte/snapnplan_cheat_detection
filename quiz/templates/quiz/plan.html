@@ -1,0 +1,150 @@
+{% extends "quiz/base.html" %}
+{% block title %}Study plan · SnapNPlan{% endblock %}
+{% block style %}
+<style>
+  .hero-plan { background: linear-gradient(135deg, var(--accent), var(--accent-2));
+               color: #fff; border: 0; }
+  .hero-plan .muted { color: rgba(255,255,255,.8); }
+  .bars { display: grid; gap: 12px; }
+  .bar-row { display: grid; grid-template-columns: minmax(0, 1fr) 56px; gap: 10px;
+             align-items: center; }
+  .bar-name { font-weight: 600; font-size: .95rem; overflow-wrap: anywhere; }
+  .bar-track { grid-column: 1 / -1; height: 8px; border-radius: 99px;
+               background: var(--line); overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 99px; }
+  .bar-score { text-align: right; font-weight: 800; font-size: .85rem; }
+  .weak { border-left: 4px solid var(--bad); }
+  .weak h2 { margin-bottom: 6px; }
+  .label { font-size: .72rem; font-weight: 800; letter-spacing: .06em;
+           text-transform: uppercase; color: var(--muted); margin-top: 10px; }
+  .timeline { position: relative; margin: 4px 0 0 8px; padding-left: 22px;
+              border-left: 2px solid var(--line); }
+  .tl-item { position: relative; padding: 0 0 18px; }
+  .tl-item:last-child { padding-bottom: 0; }
+  .tl-item::before { content: ""; position: absolute; left: -30px; top: 3px;
+                     width: 14px; height: 14px; border-radius: 50%;
+                     background: var(--accent); border: 3px solid var(--card);
+                     box-shadow: 0 0 0 2px var(--accent); }
+  .tl-when { font-weight: 800; color: var(--accent); font-size: .9rem; }
+  details.practice summary { cursor: pointer; font-weight: 700; color: var(--accent);
+                             margin-top: 10px; }
+  details.practice[open] summary { margin-bottom: 8px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip-good { background: var(--good-soft); color: var(--good); }
+</style>
+{% endblock %}
+{% block content %}
+{% if error %}
+<div class="error">
+  <div>{{ error }}</div>
+  <form method="post" style="margin-top:10px" data-busy="Trying again...">
+    {% csrf_token %}
+    <button class="btn small">Try again</button>
+  </form>
+</div>
+<a class="btn ghost" href="{% url 'result' %}">Back to my score</a>
+{% else %}
+
+<div class="card hero-plan">
+  <div class="small" style="font-weight:800;letter-spacing:.06em;opacity:.85">
+    YOUR STUDY PLAN &middot; {{ score }}/{{ total }}</div>
+  <h1 style="margin:6px 0 8px">{{ quiz.topic }}</h1>
+  <div>{{ plan.summary }}</div>
+</div>
+
+<div class="card">
+  <h2>How you did, by concept</h2>
+  <div class="bars">
+    {% for s in plan.stats %}
+    {% widthratio s.right s.total 100 as pct %}
+    <div class="bar-row">
+      <div class="bar-name">{{ s.concept }}</div>
+      <div class="bar-score">{{ s.right }}/{{ s.total }}</div>
+      <div class="bar-track">
+        <div class="bar-fill" data-pct="{{ pct }}"></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% if plan.weak_topics %}
+<h2 style="margin-top:26px">Focus on these</h2>
+{% for w in plan.weak_topics %}
+<div class="card weak">
+  <h2>{{ w.concept }}</h2>
+  <div class="label">What went wrong</div>
+  <div>{{ w.why }}</div>
+  <div class="label">How to fix it</div>
+  <div>{{ w.how_to_revise }}</div>
+</div>
+{% endfor %}
+{% endif %}
+
+{% if plan.strengths %}
+<div class="card">
+  <h2>You're solid on</h2>
+  <div class="chips">
+    {% for s in plan.strengths %}<span class="tag chip-good">{{ s }}</span>{% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Revision schedule</h2>
+  <div class="timeline">
+    {% for step in plan.schedule %}
+    <div class="tl-item">
+      <div class="tl-when">{{ step.when }}</div>
+      <div>{{ step.task }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% if plan.practice %}
+<h2 style="margin-top:26px">Extra practice</h2>
+{% for q in plan.practice %}
+<div class="card">
+  <div class="label" style="margin:0 0 6px">{{ q.concept }}</div>
+  <h2>{{ q.question }}</h2>
+  {% for opt in q.options %}
+  <div class="opt" style="cursor:default">
+    <span class="letter">{% cycle 'A' 'B' 'C' 'D' %}</span><span>{{ opt }}</span>
+  </div>
+  {% endfor %}
+  <details class="practice">
+    <summary>Show answer</summary>
+    {% for opt in q.options %}{% if forloop.counter0 == q.answer_index %}
+    <div class="opt right" style="cursor:default">
+      <span class="letter">&#10003;</span><span>{{ opt }}</span>
+    </div>
+    {% endif %}{% endfor %}
+    <div class="why" style="margin-top:8px;padding:12px 14px;border-radius:12px;background:var(--bg)">
+      {{ q.explanation }}</div>
+  </details>
+</div>
+{% endfor %}
+{% endif %}
+
+<div class="actions" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:20px">
+  <a class="btn" href="{% url 'quiz' %}">Retake quiz</a>
+  <a class="btn ghost" href="{% url 'flashcards' %}">Flashcards</a>
+  <a class="btn ghost" href="{% url 'exam' %}">Plan until my exam</a>
+</div>
+{% endif %}
+{% endblock %}
+{% block script %}
+<script>
+  document.querySelectorAll(".bar-fill").forEach(el => {
+    const pct = Number(el.dataset.pct);
+    el.style.width = Math.max(pct, 4) + "%";
+    el.style.background = pct >= 100 ? "var(--good)"
+      : pct >= 50 ? "var(--accent)" : "var(--bad)";
+  });
+  if (window.innerWidth < 560) {
+    const a = document.querySelector(".actions");
+    if (a) a.style.gridTemplateColumns = "1fr";
+  }
+</script>
+{% endblock %}

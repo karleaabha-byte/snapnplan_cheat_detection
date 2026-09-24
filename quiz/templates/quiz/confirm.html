@@ -1,0 +1,48 @@
+{% extends "quiz/base.html" %}
+{% block style %}
+<style>
+
+  .page-row { display: flex; gap: 18px; align-items: flex-start; }
+  .page-row img { width: 120px; aspect-ratio: 3/4; object-fit: cover; border-radius: 12px;
+                  border: 1px solid var(--line); flex: none; }
+  .page-row .opt { margin: 8px 0; padding: 10px 12px; }
+  .pct { margin-left: auto; font-size: .8rem; color: var(--muted); font-weight: 700; }
+  @media (max-width: 520px) {
+    .page-row { flex-direction: column; }
+    .page-row img { width: 100%; max-height: 260px; aspect-ratio: auto; }
+  }
+  </style>
+
+{% endblock %}
+{% block content %}
+<h1>Quick check</h1>
+<p class="muted">I wasn't sure about some pages. Pick what each one is
+  and I'll make your quiz.</p>
+
+<form method="post" data-busy="Making your quiz...">
+  {% csrf_token %}
+  {% for r in rows %}
+  <div class="card page-row">
+    <img src="{{ r.url }}" alt="page {{ r.i|add:1 }}">
+    <div style="flex:1;width:100%">
+      <h2>Page {{ r.i|add:1 }}</h2>
+      {% if r.unsure %}
+        {% for key, name, pct in r.options %}
+        <label class="opt">
+          <input type="radio" name="label_{{ r.i }}" value="{{ key }}"
+                 {% if key == r.pred %}checked{% endif %}>
+          <span class="letter">{{ forloop.counter }}</span>
+          <span>{{ name }}</span>
+          <span class="pct">{{ pct }}%</span>
+        </label>
+        {% endfor %}
+      {% else %}
+        <span class="tag">{{ r.pred_name }}</span>
+        <span class="muted small">&nbsp;detected automatically</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  <button class="btn block">Continue</button>
+</form>
+{% endblock %}

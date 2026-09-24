@@ -1,0 +1,11 @@
+{
+  "model": "mobilenetv2",
+  "img_size": 384,
+  "crop": "square",
+  "classes": [
+    "diagrams",
+    "handwritten",
+    "printed"
+  ],
+  "epochs": 52
+}

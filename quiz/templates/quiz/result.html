@@ -1,0 +1,91 @@
+{% extends "quiz/base.html" %}
+{% block style %}
+<style>
+  .score-card { text-align: center; padding: 30px 22px; }
+  .ring { --p: 0; width: 150px; height: 150px; margin: 0 auto 16px; border-radius: 50%;
+          display: grid; place-items: center;
+          background: conic-gradient(var(--accent) calc(var(--p) * 1%), var(--line) 0); }
+  .ring-in { width: 118px; height: 118px; border-radius: 50%; background: var(--card);
+             display: grid; place-items: center; }
+  .ring-in b { font-size: 2.2rem; line-height: 1; letter-spacing: -.02em; }
+  .ring-in span { font-size: .85rem; color: var(--muted); font-weight: 700; }
+  .badge { font-size: .75rem; font-weight: 800; padding: 4px 10px; border-radius: 99px; }
+  .badge.ok { background: var(--good-soft); color: var(--good); }
+  .badge.no { background: var(--bad-soft); color: var(--bad); }
+  .why { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--bg);
+         font-size: .93rem; }
+  .actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
+  .plan-cta { display: flex; align-items: center; justify-content: space-between;
+              gap: 16px; flex-wrap: wrap;
+              background: linear-gradient(135deg, var(--accent-soft), var(--card)); }
+  @media (max-width: 560px) { .actions { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+{% block content %}
+{% widthratio score total 100 as pct %}
+<div class="card score-card">
+  <div class="ring" data-p="{{ pct }}">
+    <div class="ring-in"><div><b>{{ score }}/{{ total }}</b><br><span>{{ pct }}%</span></div></div>
+  </div>
+  <h1 style="font-size:1.5rem">
+    {% if score == total %}Perfect score!
+    {% elif pct|add:0 >= 60 %}Nice work!
+    {% else %}Keep going!{% endif %}
+  </h1>
+  <p class="muted" style="margin:0">
+    {% if score == total %}You know {{ quiz.topic }} really well.
+    {% elif pct|add:0 >= 60 %}Review the ones you missed below.
+    {% else %}Try the flashcards, then retake the quiz.{% endif %}
+  </p>
+</div>
+
+<div class="card plan-cta">
+  <div>
+    <h2 style="margin:0 0 4px">Your personal study plan</h2>
+    <div class="muted small">What to revise, when to revise it, and extra
+      practice on the questions you missed.</div>
+  </div>
+  {% if has_plan %}
+  <a class="btn" href="{% url 'plan' %}">Open my plan</a>
+  {% else %}
+  <form method="post" action="{% url 'plan' %}" data-busy="Building your study plan...">
+    {% csrf_token %}
+    <button class="btn">Make my study plan</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="actions">
+  <a class="btn ghost" href="{% url 'quiz' %}">Retake quiz</a>
+  <a class="btn ghost" href="{% url 'flashcards' %}">Flashcards</a>
+  <a class="btn ghost" href="{% url 'exam' %}">Exam countdown</a>
+</div>
+
+<h2 style="margin-top:28px">Review</h2>
+{% for r in results %}
+<div class="card">
+  <div class="row" style="justify-content:space-between;margin-bottom:6px">
+    <span class="muted small" style="font-weight:800">QUESTION {{ forloop.counter }}</span>
+    {% if r.right %}<span class="badge ok">Correct</span>
+    {% else %}<span class="badge no">Incorrect</span>{% endif %}
+  </div>
+  <h2>{{ r.question }}</h2>
+  {% for opt in r.options %}
+  <div class="opt {% if forloop.counter0 == r.answer_index %}right{% elif forloop.counter0 == r.picked %}wrong{% endif %}"
+       style="cursor:default">
+    <span class="letter">{% cycle 'A' 'B' 'C' 'D' %}</span>
+    <span>{{ opt }}</span>
+    {% if forloop.counter0 == r.answer_index %}<span class="note" style="color:var(--good)">Correct answer</span>
+    {% elif forloop.counter0 == r.picked %}<span class="note" style="color:var(--bad)">Your answer</span>{% endif %}
+  </div>
+  {% endfor %}
+  <div class="why"><strong>Why:</strong> {{ r.explanation }}</div>
+</div>
+{% endfor %}
+{% endblock %}
+{% block script %}
+<script>
+  const ring = document.querySelector(".ring");
+  ring.style.setProperty("--p", ring.dataset.p);
+</script>
+{% endblock %}

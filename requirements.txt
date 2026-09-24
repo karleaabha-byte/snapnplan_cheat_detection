@@ -1,0 +1,8 @@
+django
+pillow
+numpy
+pytesseract
+google-genai
+python-dotenv
+gunicorn
+tensorflow-cpu==2.20.0

@@ -1,0 +1,125 @@
+{% extends "quiz/base.html" %}
+{% load static %}
+{% block topnav %}{% endblock %}
+{% block style %}
+<style>
+  .hero { text-align: center; padding: 18px 0 6px; }
+  .hero-logo { width: 88px; height: 88px; border-radius: 22px; margin-bottom: 14px;
+               box-shadow: 0 10px 30px color-mix(in srgb, var(--accent-2) 30%, transparent); }
+  .hero p { max-width: 520px; margin: 0 auto; font-size: 1.05rem; }
+  .pills { justify-content: center; margin: 16px 0 4px; }
+  .drop { display: block; border: 2px dashed color-mix(in srgb, var(--accent) 35%, var(--line));
+          border-radius: 20px; padding: 34px 18px; text-align: center; cursor: pointer;
+          background: var(--card); transition: border-color .15s, background .15s; }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .drop-icon { width: 58px; height: 58px; margin: 0 auto 12px; border-radius: 16px;
+               display: grid; place-items: center; color: var(--accent);
+               background: var(--accent-soft); }
+  .drop strong { display: block; font-size: 1.1rem; }
+  .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+            gap: 10px; margin-top: 16px; }
+  .thumbs img { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 10px;
+                border: 1px solid var(--line); }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 28px; }
+  .step { background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+          padding: 16px; }
+  .step b { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px;
+            background: var(--accent-soft); color: var(--accent); margin-bottom: 8px; }
+  @media (max-width: 560px) { .steps { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+{% block content %}
+<section class="hero">
+  <img class="hero-logo" src="{% static 'quiz/logo.png' %}" alt="">
+  <h1>Turn your notes into a quiz</h1>
+  <p class="muted">Snap a photo of any page and get practice questions
+    and flashcards in seconds.</p>
+  <div class="row pills">
+    <span class="tag">Handwritten notes</span>
+    <span class="tag">Textbook pages</span>
+    <span class="tag">Diagrams</span>
+  </div>
+</section>
+
+{% if error %}
+<div class="error">
+  <div>{{ error }}</div>
+  {% if can_retry %}
+  <form method="post" action="{% url 'retry' %}" data-busy="Trying again..."
+        style="margin-top:10px">
+    {% csrf_token %}
+    <button class="btn small">Try again with the same pages</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" data-busy="Reading your pages...">
+  {% csrf_token %}
+  <label class="drop" id="drop">
+    <input id="pages" type="file" name="page" accept="image/*"
+           multiple required data-max="{{ max_pages }}">
+    <div class="drop-icon">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 16V4"/><path d="M7 9l5-5 5 5"/>
+        <path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>
+      </svg>
+    </div>
+    <strong>Choose photos or drop them here</strong>
+    <span class="muted small">Up to {{ max_pages }} pages &middot; JPG or PNG</span>
+    <div class="thumbs" id="thumbs"></div>
+    <div id="count" class="small" style="margin-top:10px;font-weight:700"></div>
+  </label>
+  <button class="btn block" id="go" style="margin-top:16px" disabled>
+    Make my quiz
+  </button>
+</form>
+
+<div class="steps">
+  <div class="step"><b>1</b><div><strong>Snap</strong></div>
+    <div class="muted small">Photos of notes, printed pages or diagrams.</div></div>
+  <div class="step"><b>2</b><div><strong>We read it</strong></div>
+    <div class="muted small">The app works out what kind of page it is.</div></div>
+  <div class="step"><b>3</b><div><strong>Practice</strong></div>
+    <div class="muted small">Take the quiz and revise with flashcards.</div></div>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+  const inp = document.getElementById("pages");
+  const drop = document.getElementById("drop");
+  const go = document.getElementById("go");
+  const max = Number(inp.dataset.max);
+
+  function show() {
+    const files = Array.from(inp.files);
+    const thumbs = document.getElementById("thumbs");
+    thumbs.innerHTML = "";
+    files.slice(0, max).forEach(f => {
+      const img = document.createElement("img");
+      img.src = URL.createObjectURL(f);
+      img.alt = f.name;
+      thumbs.appendChild(img);
+    });
+    const n = files.length;
+    let msg = "";
+    if (n > max) msg = "Too many: pick up to " + max + " pages.";
+    else if (n > 0) msg = n + " page" + (n > 1 ? "s" : "") + " ready";
+    document.getElementById("count").textContent = msg;
+    go.disabled = n === 0 || n > max;
+  }
+  inp.addEventListener("change", show);
+  ["dragenter", "dragover"].forEach(e => drop.addEventListener(e, ev => {
+    ev.preventDefault(); drop.classList.add("over");
+  }));
+  ["dragleave", "drop"].forEach(e => drop.addEventListener(e, () =>
+    drop.classList.remove("over")));
+  drop.addEventListener("drop", ev => {
+    ev.preventDefault();
+    inp.files = ev.dataTransfer.files;
+    show();
+  });
+</script>
+{% endblock %}

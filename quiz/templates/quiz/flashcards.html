@@ -1,0 +1,87 @@
+{% extends "quiz/base.html" %}
+{% block style %}
+<style>
+
+  .deck { position: relative; height: 320px; perspective: 1200px; margin: 20px 0 14px; }
+  .flip { position: absolute; inset: 0; cursor: pointer; display: none; }
+  .flip.show { display: block; }
+  .face { position: absolute; inset: 0; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; text-align: center;
+          padding: 28px; border-radius: 22px; backface-visibility: hidden;
+          transition: transform .5s cubic-bezier(.2,.7,.2,1); box-shadow: var(--shadow); }
+  .front { background: var(--card); border: 1px solid var(--line);
+           font-size: 1.35rem; font-weight: 700; }
+  .back { color: #fff; font-size: 1.12rem; transform: rotateY(180deg);
+          background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+  .face small { position: absolute; top: 16px; left: 0; right: 0; font-size: .72rem;
+                font-weight: 800; letter-spacing: .08em; opacity: .6; }
+  .flip.flipped .front { transform: rotateY(180deg); }
+  .flip.flipped .back { transform: rotateY(360deg); }
+  .nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .dots { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  .dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+  .dots span.on { background: var(--accent); width: 20px; border-radius: 99px; }
+  kbd { font: inherit; font-size: .78rem; padding: 2px 6px; border-radius: 6px;
+        border: 1px solid var(--line); background: var(--card); }
+        </style>
+
+{% endblock %}
+{% block content %}
+<div class="row" style="justify-content:space-between">
+  <div>
+    <h1>Flashcards</h1>
+    <div class="muted small">{{ quiz.topic }}</div>
+  </div>
+  <a class="btn small" href="{% url 'quiz' %}">Take the quiz</a>
+</div>
+
+<div class="deck" id="deck">
+  {% for c in quiz.flashcards %}
+  <div class="flip" role="button" tabindex="0" aria-label="Flip card">
+    <div class="face front"><small>QUESTION</small>{{ c.front }}</div>
+    <div class="face back"><small>ANSWER</small>{{ c.back }}</div>
+  </div>
+  {% empty %}
+  <div class="card muted">No flashcards for this quiz.</div>
+  {% endfor %}
+</div>
+
+<div class="nav">
+  <button class="btn ghost small" onclick="go(-1)" aria-label="Previous">&larr; Prev</button>
+  <div class="dots" id="dots"></div>
+  <button class="btn ghost small" onclick="go(1)" aria-label="Next">Next &rarr;</button>
+</div>
+<p class="muted small" style="text-align:center;margin-top:18px">
+  Tap the card to flip &middot; <kbd>Space</kbd> flip &middot; <kbd>&larr;</kbd> <kbd>&rarr;</kbd> move
+</p>
+{% endblock %}
+{% block script %}
+<script>
+  const cards = Array.from(document.querySelectorAll(".flip"));
+  const dots = document.getElementById("dots");
+  let i = 0;
+  cards.forEach(() => dots.appendChild(document.createElement("span")));
+  function show() {
+    cards.forEach((c, k) => { c.classList.toggle("show", k === i); c.classList.remove("flipped"); });
+    Array.from(dots.children).forEach((d, k) => d.classList.toggle("on", k === i));
+  }
+  function go(d) { if (cards.length) { i = (i + d + cards.length) % cards.length; show(); } }
+  function flip() { if (cards[i]) cards[i].classList.toggle("flipped"); }
+  cards.forEach(c => c.addEventListener("click", flip));
+  document.addEventListener("keydown", e => {
+    if (e.key === "ArrowRight") go(1);
+    if (e.key === "ArrowLeft") go(-1);
+    if (e.key === " " || e.key === "Enter") { e.preventDefault(); flip(); }
+  });
+  // swipe on phones
+  let x0 = null;
+  document.getElementById("deck").addEventListener("touchstart", e => x0 = e.touches[0].clientX);
+  document.getElementById("deck").addEventListener("touchend", e => {
+    if (x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0;
+    if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1);
+    x0 = null;
+  });
+  show();
+</script>
+{% endblock %}

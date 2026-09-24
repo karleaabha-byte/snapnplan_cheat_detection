@@ -1,0 +1,170 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}SnapNPlan{% endblock %}</title>
+<link rel="icon" type="image/png" href="{% static 'quiz/logo.png' %}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f5f6fb; --card: #ffffff; --ink: #151827; --muted: #6b7085;
+    --line: #e6e8f0; --accent: #5b63e8; --accent-2: #e06bbf;
+    --accent-soft: #eeeefe; --good: #12a071; --good-soft: #e5f7ef;
+    --bad: #e0445a; --bad-soft: #fdecef; --shadow: 0 1px 2px rgba(20,24,40,.04),
+    0 8px 24px rgba(20,24,40,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1117; --card: #181b24; --ink: #eceef5; --muted: #9aa0b4;
+      --line: #2a2e3b; --accent: #8f97ff; --accent-2: #f08ad2;
+      --accent-soft: #23243f; --good: #34c792; --good-soft: #143027;
+      --bad: #ff6b80; --bad-soft: #3a1a21; --shadow: 0 1px 2px rgba(0,0,0,.3),
+      0 8px 24px rgba(0,0,0,.25);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.55 "Plus Jakarta Sans", system-ui, sans-serif; }
+  a { color: inherit; }
+  main { max-width: 760px; margin: 0 auto; padding: 28px 16px 96px; }
+  h1 { font-size: clamp(1.6rem, 4vw, 2.2rem); line-height: 1.2;
+       letter-spacing: -.02em; margin: 0 0 8px; font-weight: 800; }
+  h2 { font-size: 1.08rem; margin: 0 0 14px; font-weight: 700;
+       line-height: 1.4; }
+  .muted { color: var(--muted); }
+  .small { font-size: .88rem; }
+
+  /* header */
+  .top { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(10px);
+         background: color-mix(in srgb, var(--bg) 82%, transparent);
+         border-bottom: 1px solid var(--line); }
+  .top-in { max-width: 760px; margin: 0 auto; padding: 12px 16px;
+            display: flex; align-items: center; justify-content: space-between; }
+  .brand { display: flex; align-items: center; gap: 10px;
+           text-decoration: none; font-weight: 800; letter-spacing: -.01em; }
+  .topnav { display: flex; align-items: center; gap: 6px; }
+  .topnav a { white-space: nowrap; }
+  @media (max-width: 420px) {
+    .hide-sm { display: none; }
+    .navlink { padding: 8px 6px; }
+  }
+  .navlink { font-weight: 700; font-size: .9rem; text-decoration: none;
+             color: var(--muted); padding: 8px 10px; border-radius: 10px; }
+  .navlink:hover { color: var(--accent); background: var(--accent-soft); }
+  .logo { width: 34px; height: 34px; border-radius: 10px; display: block; }
+
+  /* building blocks */
+  .card { background: var(--card); border: 1px solid var(--line);
+          border-radius: 18px; padding: 22px; margin: 16px 0;
+          box-shadow: var(--shadow); }
+  .btn { display: inline-flex; align-items: center; justify-content: center;
+         gap: 8px; border: 0; border-radius: 12px; padding: 12px 20px;
+         font: inherit; font-weight: 700; cursor: pointer; text-decoration: none;
+         color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent-2));
+         box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 35%, transparent);
+         transition: transform .15s, box-shadow .15s, opacity .15s; }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+  .btn.ghost { background: var(--card); color: var(--accent); box-shadow: none;
+               border: 1px solid var(--line); }
+  .btn.small { padding: 8px 14px; font-size: .9rem; border-radius: 10px; }
+  .btn.block { width: 100%; }
+  .tag { display: inline-block; font-size: .78rem; font-weight: 700;
+         padding: 4px 10px; border-radius: 99px; background: var(--accent-soft);
+         color: var(--accent); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .error { background: var(--bad-soft); color: var(--bad); border-radius: 14px;
+           padding: 14px 16px; margin: 16px 0; font-weight: 600; }
+
+  /* answer options (quiz + confirm) */
+  .opt { display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+         margin: 10px 0; border: 1.5px solid var(--line); border-radius: 14px;
+         cursor: pointer; transition: border-color .15s, background .15s; }
+  .opt:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+  .opt input { position: absolute; opacity: 0; pointer-events: none; }
+  .letter { flex: none; width: 30px; height: 30px; border-radius: 9px;
+            display: grid; place-items: center; font-weight: 800; font-size: .85rem;
+            background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+  .opt:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  .opt:has(input:checked) .letter { background: var(--accent); color: #fff;
+                                    border-color: var(--accent); }
+  .opt:has(input:focus-visible) { outline: 3px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+  .opt.right { border-color: var(--good); background: var(--good-soft); }
+  .opt.right .letter { background: var(--good); color: #fff; border-color: var(--good); }
+  .opt.wrong { border-color: var(--bad); background: var(--bad-soft); }
+  .opt.wrong .letter { background: var(--bad); color: #fff; border-color: var(--bad); }
+  .opt .note { margin-left: auto; font-size: .8rem; font-weight: 700;
+               white-space: nowrap; }
+
+  /* loading overlay */
+  #busy { position: fixed; inset: 0; z-index: 50; display: none;
+          place-items: center; background: color-mix(in srgb, var(--bg) 88%, transparent);
+          backdrop-filter: blur(6px); }
+  #busy.on { display: grid; }
+  .busy-box { text-align: center; padding: 24px; }
+  .spinner { width: 56px; height: 56px; margin: 0 auto 18px; border-radius: 50%;
+             border: 5px solid var(--accent-soft); border-top-color: var(--accent);
+             animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #busy-msg { font-weight: 700; font-size: 1.1rem; }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation-duration: 3s; }
+    * { transition: none !important; }
+  }
+</style>
+{% block style %}{% endblock %}
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="{% url 'upload' %}">
+      <img class="logo" src="{% static 'quiz/logo.png' %}" alt="">
+      SnapNPlan
+    </a>
+    <nav class="topnav">
+      <a class="navlink" href="{% url 'exam' %}">Exam plan</a>
+      {% block topnav %}
+      <a class="btn small ghost" href="{% url 'upload' %}"><span>+ New<span class="hide-sm"> quiz</span></span></a>
+      {% endblock %}
+    </nav>
+  </div>
+</header>
+<main>{% block content %}{% endblock %}</main>
+
+<div id="busy" role="status" aria-live="polite">
+  <div class="busy-box">
+    <div class="spinner"></div>
+    <div id="busy-msg">Working...</div>
+    <div id="busy-sub" class="muted small">This usually takes 5-20 seconds</div>
+  </div>
+</div>
+<script>
+  // Full-screen "working" screen while the server classifies + writes the quiz
+  const steps = ["Reading your pages...", "Working out the page type...",
+                 "Writing your questions...", "Making flashcards...",
+                 "Almost there..."];
+  document.querySelectorAll("form[data-busy]").forEach(f =>
+    f.addEventListener("submit", () => {
+      const busy = document.getElementById("busy");
+      const msg = document.getElementById("busy-msg");
+      msg.textContent = f.dataset.busy;
+      busy.classList.add("on");
+      f.querySelectorAll("button").forEach(b => b.disabled = true);
+      let i = 0;
+      setInterval(() => { msg.textContent = steps[Math.min(++i, steps.length - 1)]; }, 3500);
+    }));
+  // coming back with the browser's Back button: hide the overlay again
+  window.addEventListener("pageshow", e => {
+    if (!e.persisted) return;
+    document.getElementById("busy").classList.remove("on");
+    document.querySelectorAll("form[data-busy] button")
+      .forEach(b => b.disabled = false);
+  });
+</script>
+{% block script %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,64 @@
+{% extends "quiz/base.html" %}
+{% block style %}
+<style>
+  .qhead { display: flex; justify-content: space-between; align-items: flex-end;
+           gap: 12px; flex-wrap: wrap; }
+  .progress { height: 8px; border-radius: 99px; background: var(--line);
+              overflow: hidden; margin: 16px 0 4px; }
+  .progress div { height: 100%; width: 0; border-radius: 99px;
+                  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+                  transition: width .3s; }
+  .qnum { font-size: .8rem; font-weight: 800; color: var(--accent);
+          letter-spacing: .04em; text-transform: uppercase; margin-bottom: 6px; }
+  .bar { position: sticky; bottom: 0; padding: 14px 0 18px;
+         background: linear-gradient(transparent, var(--bg) 35%); }
+</style>
+{% endblock %}
+{% block content %}
+<div class="qhead">
+  <div>
+    <h1>{{ quiz.topic }}</h1>
+    <div class="muted small">{{ quiz.questions|length }} questions{% if quiz.n_pages > 1 %}
+      &middot; {{ quiz.n_pages }} pages{% endif %}</div>
+  </div>
+  <a class="btn ghost small" href="{% url 'flashcards' %}">
+    Flashcards ({{ quiz.flashcards|length }})</a>
+</div>
+<div class="progress"><div id="prog"></div></div>
+<div class="muted small" id="prog-text">0 of {{ quiz.questions|length }} answered</div>
+
+<form method="post" id="qform" data-total="{{ quiz.questions|length }}">
+  {% csrf_token %}
+  {% for q in quiz.questions %}
+  <div class="card">
+    <div class="qnum">Question {{ forloop.counter }}</div>
+    <h2>{{ q.question }}</h2>
+    {% for opt in q.options %}
+    <label class="opt">
+      <input type="radio" name="q{{ forloop.parentloop.counter0 }}"
+             value="{{ forloop.counter0 }}" required>
+      <span class="letter">{% cycle 'A' 'B' 'C' 'D' %}</span>
+      <span>{{ opt }}</span>
+    </label>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  <div class="bar">
+    <button class="btn block" id="submit">Submit and see my score</button>
+  </div>
+</form>
+{% endblock %}
+{% block script %}
+<script>
+  const form = document.getElementById("qform");
+  const total = Number(form.dataset.total);
+  function update() {
+    const done = new Set(Array.from(form.querySelectorAll("input:checked"))
+                         .map(i => i.name)).size;
+    document.getElementById("prog").style.width = (100 * done / total) + "%";
+    document.getElementById("prog-text").textContent =
+      done + " of " + total + " answered";
+  }
+  form.addEventListener("change", update);
+</script>
+{% endblock %}
