@@ -31,6 +31,12 @@
 
   .clock.low { color: var(--bad); }
 
+  /* only shown with ?debug=1 */
+  .debug { font-family: ui-monospace, Consolas, monospace; font-size: .78rem;
+           color: var(--muted); background: var(--card); padding: 6px 12px;
+           border: 1px solid var(--line); border-radius: 8px;
+           margin: -8px 0 14px; white-space: pre; overflow-x: auto; }
+
   /* ---- the gate shown before sharing starts ---- */
   .gate { max-width: 620px; margin: 40px auto; text-align: center; }
   .gate h1 { margin-bottom: 8px; }
@@ -89,6 +95,7 @@
     <span class="msg" id="bar-msg">Screen is being monitored</span>
     <span class="clock" id="clock">--:--</span>
   </div>
+  <div class="debug" id="debug" hidden></div>
 
   <div id="questions"></div>
 
@@ -170,8 +177,7 @@
   const MSG = {
     ok:        "Screen is being monitored",
     warning:   "Another window is visible — close it now",
-    warned:    "Another window is visible — close it now",
-    flagged:   "Another window was recorded. Close it and carry on.",
+    flagged:   "Recorded. Close the window and carry on.",
     permitted: "Lookup allowed by the invigilator",
     paused:    "Monitoring paused by the invigilator",
     stopped:   "Monitoring stopped",
@@ -189,7 +195,22 @@
      "Another window is visible" for ten seconds with nothing moving, and it
      is impossible to tell working-but-waiting from broken — which is exactly
      how it looked the first time this ran. */
+  // Add ?debug=1 to the exam URL to see what the model is actually deciding,
+  // live. Without this, "it is not detecting" and "it is detecting but the
+  // clock keeps resetting" and "the model never loaded" all look identical
+  // from the outside.
+  const DEBUG = new URLSearchParams(location.search).has("debug");
+  if (DEBUG) $("debug").hidden = false;
+
   function onTick(t) {
+    if (DEBUG) {
+      const bar = Math.round((t.p ?? 0) * 20);
+      $("debug").textContent =
+        `P(window)=${(t.p ?? 0).toFixed(3)}  [${"#".repeat(bar)}`
+        + `${".".repeat(20 - bar)}]  threshold=0.65  `
+        + `${t.detected ? "DETECTED" : "clean"}  held=${Math.round((t.heldMs || 0) / 1000)}s`
+        + `${t.label ? "  " + t.label : ""}`;
+    }
     if (proctor && proctor.mode !== "monitoring") return;
     if (t.detected && lastState !== "flagged") {
       const s = Math.ceil(t.toFlag / 1000);

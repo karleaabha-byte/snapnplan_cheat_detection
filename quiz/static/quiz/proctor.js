@@ -43,9 +43,30 @@
  */
 
 const DEFAULTS = {
-  sampleMs: 4000,        // how often to classify a frame
-  warnAfterMs: 8000,     // sustained detection before the student is warned
-  flagAfterMs: 18000,    // sustained detection before it is recorded
+  // These three are a trade, not a tuning knob to max out. The whole point of
+  // waiting is that a notification toast, a dropdown or an alt-tab through a
+  // window should NOT go on a student's record. Too short and the report
+  // fills with accidents; too long and a real lookup finishes before it is
+  // caught, and a demo looks broken while everyone stands around watching.
+  //
+  // At 2.5s sampling a flag lands ~12.5s after a window appears, and still
+  // needs five consecutive detections, so a popup that shows for three
+  // seconds is invisible to it.
+  sampleMs: 2500,        // how often to classify a frame
+
+  // Warn on the FIRST frame that sees a window. A warning that arrives
+  // halfway to the flag is a confusing middle state - by the time it shows,
+  // the student has already been detected for seconds and has less time to
+  // react than they think.
+  //
+  // Warning immediately makes it an alert rather than a stage: "this is
+  // visible, close it, it goes on your record in 12 seconds". Nothing is
+  // recorded when it clears, so an accidental window costs nothing but a
+  // beep. Set this to Infinity to remove warnings entirely and go straight
+  // from clear to recorded - but then the first a student knows of it is
+  // that it already counted, which is a harder thing to defend.
+  warnAfterMs: 0,
+  flagAfterMs: 12000,    // sustained detection before it is recorded
 
   // Measured on 37 REAL screenshots (19 clean, 18 with a window open),
   // not on the generated training data:
@@ -60,6 +81,20 @@ const DEFAULTS = {
   // own config.json says 0.50, which was tuned on synthetic data where
   // separation was perfect - do not use that number here.
   threshold: 0.65,
+
+  // Seconds the exam tab may be hidden before it is recorded. This is a
+  // SEPARATE signal from the classifier and needs no model: the browser says
+  // outright when its tab is hidden, so switching to another tab or
+  // minimising is caught exactly, with no threshold and no false positives.
+  //
+  // It matters because the model was trained on "a window on top of the exam",
+  // not "the exam replaced entirely by something else". A student who
+  // alt-tabs to a full-screen chat is the obvious cheat and the one case the
+  // classifier is least suited to, so it is worth answering directly rather
+  // than hoping the model generalises.
+  //
+  // 3 seconds, because a mis-click that bounces straight back is not cheating.
+  tabAwaySeconds: 3,
 
   classes: ["clean", "ai_chat", "document", "messaging", "search_web"],
   allow: [],             // e.g. ["document"] for an open-book paper
@@ -81,6 +116,8 @@ export class Proctor {
     this.detectedSince = null;
     this.warned = false;
     this.misses = 0;
+    this.hiddenSince = null;
+    this.tabAways = 0;
     this.events = [];
     this.frames = 0;
     this.detections = 0;
@@ -132,8 +169,44 @@ export class Proctor {
     this.startedAt = Date.now();
     this._modeSince = this.startedAt;
     this._setState("ok");
+    this._watchTab();
     this.timer = setInterval(() => this._tick(), this.o.sampleMs);
     return true;
+  }
+
+  /** The exam tab being hidden is recorded on its own, without the model.
+   *
+   *  Note this is not merely a convenience. Browsers throttle timers in
+   *  background tabs - setInterval can drop to roughly once a minute - so
+   *  while a student is away on another tab the classifier is barely running
+   *  at all. The one moment the screen is most worth checking is the moment
+   *  sampling is least reliable, which is exactly why this signal exists. */
+  _watchTab() {
+    this._onVis = () => {
+      if (this.state === "stopped") return;
+
+      if (document.hidden) {
+        this.hiddenSince = Date.now();
+        return;
+      }
+
+      if (!this.hiddenSince) return;
+      const away = Math.round((Date.now() - this.hiddenSince) / 1000);
+      this.hiddenSince = null;
+      if (away < this.o.tabAwaySeconds) return;   // a bounced mis-click
+
+      if (this.mode === "paused") return;
+      if (this.mode === "permitted") {
+        this._record("permitted_tab_away", away);
+        return;
+      }
+
+      this._record("left_exam_tab", away);
+      this.tabAways = (this.tabAways || 0) + 1;
+      this._setState("flagged");
+      if (this.o.alarm) this._beep();            // they are back now, so audible
+    };
+    document.addEventListener("visibilitychange", this._onVis);
   }
 
   /** Load the model, whichever way it was exported.
@@ -411,6 +484,10 @@ export class Proctor {
     clearInterval(this.timer);
     clearInterval(this.control);
     this.timer = this.control = null;
+    if (this._onVis) {
+      document.removeEventListener("visibilitychange", this._onVis);
+      this._onVis = null;
+    }
 
     const now = Date.now();
     if (this.mode === "permitted") this.permittedMs += now - this._modeSince;
@@ -434,6 +511,11 @@ export class Proctor {
         frames_detected: this.detections,
         confirmed_events: flagged.length,
         flagged_seconds: flagged.reduce((a, e) => a + e.seconds, 0),
+        tab_aways: this.events.filter(
+          (e) => e.type === "left_exam_tab").length,
+        tab_away_seconds: this.events
+          .filter((e) => e.type === "left_exam_tab")
+          .reduce((a, e) => a + e.seconds, 0),
       },
     };
   }

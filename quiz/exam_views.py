@@ -379,8 +379,10 @@ def exam_submit(request, code):
     attempt.score = score
     attempt.events = events
     attempt.stats = report.get("stats", {})
-    attempt.flag_count = sum(
-        1 for e in events if e.get("type") == "other_window_visible")
+    # Both confirmed signals count. A student who never had a window beside
+    # the exam but left the tab six times is not "no windows recorded".
+    FLAGGED = {"other_window_visible", "left_exam_tab"}
+    attempt.flag_count = sum(1 for e in events if e.get("type") in FLAGGED)
     attempt.state = "stopped"
     attempt.submitted_at = timezone.now()
     attempt.save()
