@@ -1,0 +1,139 @@
+{% extends "quiz/base.html" %}
+{% block title %}Result · {{ session.title }}{% endblock %}
+{% block style %}
+<style>
+  .wrap { max-width: 640px; margin: 36px auto; }
+  .score { text-align: center; padding: 26px 0 8px; }
+  .score b { display: block; font-size: 3.4rem; font-weight: 800; line-height: 1;
+             background: linear-gradient(135deg, var(--accent), var(--accent-2));
+             -webkit-background-clip: text; background-clip: text;
+             -webkit-text-fill-color: transparent; }
+  .score span { color: var(--muted); font-weight: 700; }
+
+  .verdict { border-radius: 14px; padding: 14px 18px; margin: 22px 0;
+             font-weight: 700; }
+  .verdict.clean { background: var(--good-soft, #e8f7ee); color: var(--good); }
+  .verdict.flagged { background: var(--bad-soft); color: var(--bad); }
+  .verdict p { font-weight: 600; margin: 6px 0 0; font-size: .88rem;
+               opacity: .9; }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+           margin: 18px 0 28px; }
+  .stats div { background: var(--card); border: 1px solid var(--line);
+               border-radius: 12px; padding: 12px; text-align: center; }
+  .stats b { display: block; font-size: 1.3rem; font-weight: 800; }
+  .stats span { font-size: .72rem; color: var(--muted); font-weight: 700;
+                letter-spacing: .04em; }
+  @media (max-width: 520px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+  h2 { font-size: 1.05rem; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: .85rem; margin-bottom: 14px; }
+
+  .line { display: flex; gap: 12px; align-items: baseline;
+          padding: 11px 14px; border-left: 3px solid var(--line);
+          background: var(--card); border-radius: 0 10px 10px 0;
+          margin-bottom: 6px; }
+  .line .at { font-variant-numeric: tabular-nums; font-weight: 800;
+              font-size: .85rem; color: var(--muted); flex: none;
+              min-width: 56px; }
+  .line .what { font-weight: 600; font-size: .9rem; }
+  .line .what i { font-style: normal; color: var(--muted); }
+  .line.bad { border-left-color: var(--bad); }
+  .line.bad .what { color: var(--bad); font-weight: 700; }
+  .line.warn { border-left-color: var(--warn, #d98200); }
+  .line.info { border-left-color: var(--accent); }
+
+  .none { color: var(--muted); padding: 14px 0; }
+  .foot { margin: 30px 0 60px; font-size: .84rem; color: var(--muted);
+          line-height: 1.8; border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+{% endblock %}
+{% block content %}
+
+{{ attempt.events|json_script:"events" }}
+{{ attempt.stats|json_script:"stats" }}
+
+<div class="wrap">
+  <div class="score">
+    <b>{{ attempt.score }}<span style="-webkit-text-fill-color:var(--muted);font-size:1.6rem">/{{ session.questions|length }}</span></b>
+    <span>{{ attempt.name }} &middot; {{ session.title }}</span>
+  </div>
+
+  {% if attempt.flag_count %}
+    <div class="verdict flagged">
+      {{ attempt.flag_count }} window event{{ attempt.flag_count|pluralize }} recorded.
+      <p>Your invigilator sees the same timeline below. Nothing here is a
+         decision — it is a record for them to read.</p>
+    </div>
+  {% else %}
+    <div class="verdict clean">
+      No windows recorded.
+      <p>Your screen was clear for the whole monitored period.</p>
+    </div>
+  {% endif %}
+
+  <div class="stats">
+    <div><b id="t-total">—</b><span>MINUTES</span></div>
+    <div><b id="t-mon">—</b><span>MONITORED</span></div>
+    <div><b id="t-checks">—</b><span>CHECKS</span></div>
+    <div><b id="t-flag">—</b><span>FLAGGED SEC</span></div>
+  </div>
+
+  <h2>Timeline</h2>
+  <p class="sub">Every entry below is a line of text. No image of your screen
+     was captured at any point.</p>
+  <div id="timeline"></div>
+
+  <p class="foot">
+    Times are from the moment screen sharing started. A gap marked
+    <i>paused</i> means monitoring was deliberately stopped by the invigilator —
+    it is shown here so that a gap can never be mistaken for a clear period.
+  </p>
+</div>
+
+{% endblock %}
+{% block script %}
+<script>
+  // Both come through json_script, which escapes them properly — never
+  // interpolate a Python dict straight into JavaScript, it renders with
+  // single quotes and None and is not valid JSON.
+  const events = JSON.parse(document.getElementById("events").textContent) || [];
+  const stats  = JSON.parse(document.getElementById("stats").textContent) || {};
+
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  const set = (id, v) => document.getElementById(id).textContent = v;
+
+  set("t-total",  Math.round((stats.duration_s || 0) / 60));
+  set("t-mon",    Math.round((stats.monitored_s || 0) / 60) + "m");
+  set("t-checks", stats.frames_checked ?? 0);
+  set("t-flag",   stats.flagged_seconds ?? 0);
+
+  const NAME = {
+    other_window_visible:     ["bad",  "Another window on top"],
+    permitted_window_visible: ["info", "Window visible during permitted lookup"],
+    warning_cleared:          ["warn", "Warned, then cleared"],
+    sharing_stopped:          ["bad",  "Screen sharing was stopped"],
+    mode_monitoring:          ["info", "Invigilator resumed monitoring"],
+    mode_permitted:           ["info", "Invigilator allowed a lookup"],
+    mode_paused:              ["info", "Invigilator paused monitoring"],
+  };
+
+  const html = events.map((e) => {
+    const [cls, label] = NAME[e.type] || ["", e.type];
+    const bits = [];
+    if (e.seconds) bits.push(`${e.seconds}s`);
+    if (e.note) bits.push(esc(e.note).replace(/_/g, " "));
+    return `<div class="line ${cls}">
+              <span class="at">${mmss(e.elapsed || 0)}</span>
+              <span class="what">${esc(label)}
+                ${bits.length ? `<i>&middot; ${bits.join(" · ")}</i>` : ""}</span>
+            </div>`;
+  }).join("");
+
+  document.getElementById("timeline").innerHTML =
+    html || `<p class="none">Nothing to show — the screen stayed clear.</p>`;
+</script>
+{% endblock %}

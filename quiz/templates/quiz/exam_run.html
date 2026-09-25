@@ -1,0 +1,268 @@
+{% extends "quiz/base.html" %}
+{% load static %}
+{% block title %}{{ session.title }} · exam{% endblock %}
+{% block topnav %}{% endblock %}
+{% block style %}
+<style>
+  /* ---- the bar that is always visible while the exam runs ---- */
+  .proctor-bar { position: sticky; top: 0; z-index: 50;
+                 display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+                 padding: 10px 16px; margin: -12px -12px 18px;
+                 border-bottom: 1px solid var(--line); background: var(--card); }
+  .proctor-bar .pip { width: 11px; height: 11px; border-radius: 50%;
+                      background: var(--muted); flex: none; }
+  .proctor-bar .msg { font-weight: 700; font-size: .92rem; }
+  .proctor-bar .clock { margin-left: auto; font-weight: 800;
+                        font-variant-numeric: tabular-nums; font-size: 1.05rem; }
+
+  .proctor-bar[data-state="ok"]        .pip { background: var(--good); }
+  .proctor-bar[data-state="warning"]   { background: var(--warn-soft, #fff3e0); }
+  .proctor-bar[data-state="warning"]   .pip { background: var(--warn, #d98200);
+                                              animation: blink 1s infinite; }
+  .proctor-bar[data-state="warning"]   .msg { color: var(--warn, #d98200); }
+  .proctor-bar[data-state="flagged"]   { background: var(--bad-soft); }
+  .proctor-bar[data-state="flagged"]   .pip { background: var(--bad); }
+  .proctor-bar[data-state="flagged"]   .msg { color: var(--bad); }
+  .proctor-bar[data-state="permitted"] { background: var(--accent-soft); }
+  .proctor-bar[data-state="permitted"] .pip { background: var(--accent); }
+  .proctor-bar[data-state="permitted"] .msg { color: var(--accent); }
+  .proctor-bar[data-state="paused"]    .pip { background: var(--muted); }
+  @keyframes blink { 50% { opacity: .25; } }
+
+  .clock.low { color: var(--bad); }
+
+  /* ---- the gate shown before sharing starts ---- */
+  .gate { max-width: 620px; margin: 40px auto; text-align: center; }
+  .gate h1 { margin-bottom: 8px; }
+  .gate ul { text-align: left; display: inline-block; margin: 16px 0 24px;
+             line-height: 1.9; }
+  .gate .err { color: var(--bad); font-weight: 700; margin-top: 14px;
+               min-height: 1.4em; }
+
+  /* ---- questions ---- */
+  .q { background: var(--card); border: 1px solid var(--line);
+       border-radius: 16px; padding: 18px 20px; margin-bottom: 14px; }
+  .q .n { font-size: .78rem; font-weight: 800; color: var(--muted);
+          letter-spacing: .08em; }
+  .q .text { font-weight: 700; margin: 6px 0 14px; }
+  .opt { display: flex; gap: 10px; align-items: flex-start;
+         border: 1.5px solid var(--line); border-radius: 12px;
+         padding: 10px 14px; margin-bottom: 8px; cursor: pointer;
+         transition: border-color .15s, background .15s; }
+  .opt:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+  .opt input { margin-top: 3px; accent-color: var(--accent); }
+  .opt.sel { border-color: var(--accent); background: var(--accent-soft); }
+
+  .submit-row { display: flex; align-items: center; gap: 14px;
+                flex-wrap: wrap; margin: 24px 0 60px; }
+</style>
+{% endblock %}
+{% block content %}
+
+{{ questions|json_script:"qdata" }}
+
+<!-- ============================ before sharing ============================ -->
+<section class="gate" id="gate">
+  <h1>{{ session.title }}</h1>
+  <p class="muted">{{ session.minutes }} minutes &middot; {{ attempt.name }}</p>
+
+  <ul>
+    <li>Close everything except this tab before you begin.</li>
+    <li>You will be asked to share your screen. Choose
+        <b>Entire Screen</b> &mdash; a single tab or window is refused.</li>
+    <li>Nothing is recorded. Only the <i>times</i> another window was on top
+        are stored, never any picture of your screen.</li>
+    <li>If another window appears you get a warning first. Close it and
+        nothing is logged.</li>
+  </ul>
+
+  <div>
+    <button class="btn" id="begin">Share screen &amp; begin</button>
+  </div>
+  <p class="err" id="gate-err"></p>
+</section>
+
+<!-- ============================ the exam itself =========================== -->
+<section id="exam" hidden>
+  <div class="proctor-bar" id="bar" data-state="ok">
+    <span class="pip"></span>
+    <span class="msg" id="bar-msg">Screen is being monitored</span>
+    <span class="clock" id="clock">--:--</span>
+  </div>
+
+  <div id="questions"></div>
+
+  <div class="submit-row">
+    <button class="btn" id="submit">Submit exam</button>
+    <span class="small muted" id="progress"></span>
+  </div>
+</section>
+
+{% endblock %}
+{% block script %}
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+<script type="module">
+  import { Proctor } from "{% static 'quiz/proctor.js' %}";
+
+  const MODE_URL   = "{% url 'exam_mode'   session.code %}";
+  const SUBMIT_URL = "{% url 'exam_submit' session.code %}";
+  const REPORT_URL = "{% url 'exam_report' session.code %}";
+  const MODEL_URL  = "{% static 'quiz/screen_model/model.json' %}";
+  const CSRF       = "{{ csrf_token }}";
+  const MINUTES    = {{ session.minutes }};
+
+  const $ = (id) => document.getElementById(id);
+  const questions = JSON.parse($("qdata").textContent) || [];
+  const answers = new Array(questions.length).fill(null);
+  let proctor = null, deadline = null, submitting = false;
+
+  /* -------------------------------------------------------------- questions */
+  // The quiz pipeline has used a few different key names over time, so read
+  // whichever is present rather than assuming one shape.
+  const textOf = (q) => q.question ?? q.text ?? q.prompt ?? "";
+  const optsOf = (q) => q.options ?? q.choices ?? [];
+
+  function renderQuestions() {
+    $("questions").innerHTML = questions.map((q, i) => `
+      <div class="q">
+        <div class="n">QUESTION ${i + 1} OF ${questions.length}</div>
+        <div class="text">${escapeHtml(textOf(q))}</div>
+        ${optsOf(q).map((o, j) => `
+          <label class="opt" data-q="${i}" data-o="${j}">
+            <input type="radio" name="q${i}" value="${j}">
+            <span>${escapeHtml(String(o))}</span>
+          </label>`).join("")}
+      </div>`).join("");
+
+    document.querySelectorAll(".opt").forEach((el) => {
+      el.onclick = () => {
+        const i = +el.dataset.q, j = +el.dataset.o;
+        answers[i] = j;
+        el.parentElement.querySelectorAll(".opt")
+          .forEach((s) => s.classList.toggle("sel", s === el));
+        updateProgress();
+      };
+    });
+    updateProgress();
+  }
+
+  function updateProgress() {
+    const done = answers.filter((a) => a !== null).length;
+    $("progress").textContent = `${done} of ${questions.length} answered`;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => (
+      { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  /* ------------------------------------------------------------------ clock */
+  function tickClock() {
+    const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+    const m = String(Math.floor(left / 60)).padStart(2, "0");
+    const s = String(left % 60).padStart(2, "0");
+    $("clock").textContent = `${m}:${s}`;
+    $("clock").classList.toggle("low", left <= 120);
+    if (left === 0) submit(true);
+  }
+
+  /* --------------------------------------------------------- proctor state */
+  const MSG = {
+    ok:        "Screen is being monitored",
+    warning:   "Another window is visible — close it now",
+    warned:    "Another window is visible — close it now",
+    flagged:   "Another window was recorded. Close it and carry on.",
+    permitted: "Lookup allowed by the invigilator",
+    paused:    "Monitoring paused by the invigilator",
+    stopped:   "Monitoring stopped",
+  };
+
+  function onState(s) {
+    $("bar").dataset.state = s;
+    $("bar-msg").textContent = MSG[s] || s;
+  }
+
+  /* Heartbeat: tells the server this student is alive and what the proctor is
+     seeing, and reads back the mode the invigilator has set. Doing it here
+     rather than with proctor.attachControl() lets the state ride along on the
+     same request — one round trip instead of two. */
+  async function heartbeat() {
+    if (!proctor) return;
+    try {
+      const r = await fetch(
+        `${MODE_URL}?state=${encodeURIComponent(proctor.state)}`,
+        { cache: "no-store" });
+      if (!r.ok) return;
+      const { mode, reason } = await r.json();
+      if (mode && mode !== proctor.mode) proctor.setMode(mode, reason || "");
+    } catch (_) { /* blip: keep the current mode */ }
+  }
+
+  /* ------------------------------------------------------------------ start */
+  $("begin").onclick = async () => {
+    $("gate-err").textContent = "";
+    $("begin").disabled = true;
+    proctor = new Proctor({
+      modelUrl: MODEL_URL,
+      onState,
+      // threshold, sampleMs etc. come from proctor.js DEFAULTS, which were
+      // tuned on real screenshots — do not override them here.
+    });
+    try {
+      await proctor.start();
+    } catch (e) {
+      $("gate-err").textContent = e.message ||
+        "Could not start screen sharing. Please try again.";
+      $("begin").disabled = false;
+      proctor = null;
+      return;
+    }
+
+    $("gate").hidden = true;
+    $("exam").hidden = false;
+    renderQuestions();
+
+    deadline = Date.now() + MINUTES * 60 * 1000;
+    tickClock();
+    setInterval(tickClock, 1000);
+
+    heartbeat();
+    setInterval(heartbeat, 5000);
+  };
+
+  /* ----------------------------------------------------------------- submit */
+  $("submit").onclick = () => submit(false);
+
+  async function submit(auto) {
+    if (submitting) return;
+    const missing = answers.filter((a) => a === null).length;
+    if (!auto && missing &&
+        !confirm(`${missing} question${missing > 1 ? "s are" : " is"} `
+                 + `unanswered. Submit anyway?`)) return;
+    submitting = true;
+    $("submit").disabled = true;
+    $("submit").textContent = "Submitting…";
+
+    const report = proctor ? proctor.stop() : { events: [], stats: {} };
+    try {
+      const r = await fetch(SUBMIT_URL, {
+        method: "POST",
+        headers: { "X-CSRFToken": CSRF, "Content-Type": "application/json" },
+        body: JSON.stringify({ answers, report }),
+      });
+      if (!r.ok) throw new Error("Server refused the submission.");
+      window.location = REPORT_URL;
+    } catch (e) {
+      submitting = false;
+      $("submit").disabled = false;
+      $("submit").textContent = "Submit exam";
+      alert("Could not submit: " + e.message + "\nYour answers are still here — try again.");
+    }
+  }
+
+  // Leaving mid-exam is worth a nudge; the proctor logs the stopped share anyway.
+  window.addEventListener("beforeunload", (e) => {
+    if (proctor && !submitting) { e.preventDefault(); e.returnValue = ""; }
+  });
+</script>
+{% endblock %}

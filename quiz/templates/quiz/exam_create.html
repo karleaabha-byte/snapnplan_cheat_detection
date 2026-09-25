@@ -1,0 +1,55 @@
+{% extends "quiz/base.html" %}
+{% block title %}Start an exam{% endblock %}
+{% block style %}
+<style>
+  .wrap { max-width: 520px; margin: 40px auto; }
+  .field { margin-bottom: 18px; }
+  .field label { display: block; font-weight: 700; font-size: .9rem;
+                 margin-bottom: 6px; }
+  .field input { width: 100%; padding: 12px 14px; font: inherit;
+                 border: 1.5px solid var(--line); border-radius: 12px;
+                 background: var(--card); color: var(--ink); }
+  .field input:focus { outline: none; border-color: var(--accent); }
+  .field .hint { font-size: .8rem; color: var(--muted); margin-top: 5px; }
+  .note { background: var(--card); border: 1px solid var(--line);
+          border-radius: 14px; padding: 14px 16px; margin: 22px 0;
+          font-size: .88rem; line-height: 1.7; }
+  .note b { display: block; margin-bottom: 4px; }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="wrap">
+  <h1>Start an exam</h1>
+  <p class="muted">You get a code to read out. Students join with it — no
+     accounts, no setup on their side.</p>
+
+  <form method="post">
+    {% csrf_token %}
+
+    <div class="field">
+      <label for="title">What is this exam called?</label>
+      <input id="title" name="title" maxlength="80" required
+             placeholder="Midterm — Data Structures" value="Midterm">
+      <div class="hint">Students see this at the top of their screen.</div>
+    </div>
+
+    <div class="field">
+      <label for="minutes">How long, in minutes?</label>
+      <input id="minutes" name="minutes" type="number" min="1" max="240"
+             value="30" required>
+      <div class="hint">The clock starts when each student shares their screen.</div>
+    </div>
+
+    <button class="btn" type="submit">Create session</button>
+  </form>
+
+  <div class="note">
+    <b>What students will be asked</b>
+    To share their <i>entire screen</i>. A single tab or window is refused,
+    because that is the obvious way around this. No video is stored anywhere —
+    only the times another window was on top of the exam.
+  </div>
+</div>
+
+{% endblock %}

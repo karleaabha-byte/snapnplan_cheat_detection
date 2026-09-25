@@ -1,0 +1,228 @@
+{% extends "quiz/base.html" %}
+{% block title %}Invigilator · {{ session.title }}{% endblock %}
+{% block topnav %}{% endblock %}
+{% block style %}
+<style>
+  .board-head { display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+                justify-content: space-between; margin-bottom: 4px; }
+  .code { font-size: clamp(2rem, 7vw, 3.2rem); font-weight: 800;
+          letter-spacing: .12em; line-height: 1;
+          background: linear-gradient(135deg, var(--accent), var(--accent-2));
+          -webkit-background-clip: text; background-clip: text;
+          -webkit-text-fill-color: transparent; }
+
+  /* mode switch */
+  .modes { display: flex; gap: 8px; flex-wrap: wrap; }
+  .mode { border: 1.5px solid var(--line); background: var(--card);
+          color: var(--ink); border-radius: 12px; padding: 10px 16px;
+          font: inherit; font-weight: 700; font-size: .92rem; cursor: pointer;
+          transition: border-color .15s, background .15s; }
+  .mode:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+  .mode[aria-pressed="true"] { background: var(--accent); color: #fff;
+                               border-color: var(--accent); }
+  .mode.permit[aria-pressed="true"] { background: var(--warn, #d98200);
+                                      border-color: var(--warn, #d98200); }
+  .mode.pause[aria-pressed="true"] { background: var(--muted);
+                                     border-color: var(--muted); }
+
+  /* summary strip */
+  .strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+           margin: 16px 0; }
+  .stat { background: var(--card); border: 1px solid var(--line);
+          border-radius: 14px; padding: 14px 16px; }
+  .stat b { display: block; font-size: 1.8rem; font-weight: 800; line-height: 1.1; }
+  .stat span { font-size: .8rem; color: var(--muted); font-weight: 700; }
+  .stat.bad b { color: var(--bad); }
+  .stat.warn b { color: var(--warn, #d98200); }
+  @media (max-width: 560px) { .strip { grid-template-columns: repeat(2, 1fr); } }
+
+  /* student grid */
+  .grid { display: grid; gap: 12px;
+          grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); }
+  .tile { background: var(--card); border: 1.5px solid var(--line);
+          border-radius: 16px; padding: 14px; cursor: pointer; text-align: left;
+          font: inherit; color: inherit; position: relative;
+          transition: border-color .2s, background .2s, transform .15s; }
+  .tile:hover { transform: translateY(-2px); }
+  .tile .who { font-weight: 700; display: block; margin-bottom: 8px;
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile .why { font-size: .8rem; color: var(--muted); font-weight: 600; }
+  .tile .pip { position: absolute; top: 14px; right: 14px; width: 10px;
+               height: 10px; border-radius: 50%; background: var(--muted); }
+
+  .tile.ok        { border-color: color-mix(in srgb, var(--good) 45%, var(--line)); }
+  .tile.ok .pip   { background: var(--good); }
+  .tile.warning   { border-color: var(--warn, #d98200);
+                    background: var(--warn-soft, #fff3e0); }
+  .tile.warning .pip { background: var(--warn, #d98200); animation: blink 1s infinite; }
+  .tile.flagged   { border-color: var(--bad); background: var(--bad-soft); }
+  .tile.flagged .pip { background: var(--bad); }
+  .tile.flagged .why { color: var(--bad); }
+  .tile.permitted { border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+                    background: var(--accent-soft); }
+  .tile.permitted .pip { background: var(--accent); }
+  .tile.paused    { opacity: .55; }
+  .tile.offline   { opacity: .4; border-style: dashed; }
+  .tile.submitted { opacity: .7; }
+  @keyframes blink { 50% { opacity: .3; } }
+
+  .empty { text-align: center; padding: 40px 20px; color: var(--muted); }
+  .banner { border-radius: 14px; padding: 12px 16px; margin: 14px 0;
+            font-weight: 700; display: none; }
+  .banner.on { display: block; }
+  .banner.permit { background: var(--warn-soft, #fff3e0);
+                   color: var(--warn, #d98200); }
+  .banner.pause { background: var(--bg); color: var(--muted);
+                  border: 1px solid var(--line); }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="board-head">
+  <div>
+    <div class="small muted" style="font-weight:700">Session code</div>
+    <div class="code" id="code">{{ session.code }}</div>
+    <div class="small muted">{{ session.title }} &middot; {{ session.minutes }} min</div>
+  </div>
+  <div class="modes" role="group" aria-label="Room mode">
+    <button class="mode" data-mode="monitoring" aria-pressed="true">Monitoring</button>
+    <button class="mode permit" data-mode="permitted" aria-pressed="false">Allow lookup</button>
+    <button class="mode pause" data-mode="paused" aria-pressed="false">Pause</button>
+  </div>
+</div>
+
+<div class="banner permit" id="b-permit">
+  Lookup is permitted. Windows are still logged, but nobody is flagged.
+</div>
+<div class="banner pause" id="b-pause">
+  Monitoring paused. Nothing is being checked — this gap shows on every report.
+</div>
+
+<div class="strip">
+  <div class="stat"><b id="s-total">0</b><span>STUDENTS</span></div>
+  <div class="stat"><b id="s-ok">0</b><span>CLEAR</span></div>
+  <div class="stat warn"><b id="s-warn">0</b><span>WARNING</span></div>
+  <div class="stat bad"><b id="s-flag">0</b><span>FLAGGED</span></div>
+</div>
+
+<div class="grid" id="grid"></div>
+<div class="empty" id="empty">
+  <p>Waiting for students to join.</p>
+  <p class="small">Read out the code above. They go to this site and enter it.</p>
+  <button class="btn ghost small" id="demo">Show me with fake students</button>
+</div>
+
+{% endblock %}
+{% block script %}
+<script>
+  const STATUS_URL = "{% url 'exam_status' session.code %}";
+  const SET_URL    = "{% url 'exam_set_mode' session.code %}";
+  const CSRF = "{{ csrf_token }}";
+
+  const $ = (id) => document.getElementById(id);
+  let demo = false, demoStudents = [];
+
+  /* ---------------------------------------------------------- rendering */
+  const LABEL = {
+    ok: "Clear", warning: "Window detected", flagged: "Window recorded",
+    permitted: "Lookup allowed", paused: "Paused", offline: "Not connected",
+    stopped: "Finished",
+  };
+
+  function render(data) {
+    const rows = data.students || [];
+    $("empty").style.display = rows.length ? "none" : "";
+    $("grid").innerHTML = rows.map((s) => {
+      const cls = s.submitted ? "submitted" : s.state;
+      const why = s.submitted ? "Submitted"
+        : (s.flags ? `${s.flags} event${s.flags > 1 ? "s" : ""}`
+                   : LABEL[s.state] || s.state);
+      return `<button class="tile ${cls}" data-id="${s.id}" data-name="${s.name}">
+                <span class="pip"></span>
+                <span class="who">${s.name}</span>
+                <span class="why">${why}</span>
+              </button>`;
+    }).join("");
+
+    $("s-total").textContent = rows.length;
+    $("s-ok").textContent    = rows.filter((s) => s.state === "ok").length;
+    $("s-warn").textContent  = rows.filter((s) => s.state === "warning").length;
+    $("s-flag").textContent  = rows.filter((s) => s.state === "flagged").length;
+
+    setMode(data.mode || "monitoring", false);
+
+    document.querySelectorAll(".tile").forEach((t) => {
+      t.onclick = () => perStudent(t.dataset.id, t.dataset.name);
+    });
+  }
+
+  function setMode(mode, send = true) {
+    document.querySelectorAll(".mode").forEach((b) =>
+      b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
+    $("b-permit").classList.toggle("on", mode === "permitted");
+    $("b-pause").classList.toggle("on", mode === "paused");
+    if (send) post({ mode });
+  }
+
+  /* ------------------------------------------------------------ server */
+  async function post(body) {
+    if (demo) return;
+    const form = new URLSearchParams(body);
+    await fetch(SET_URL, {
+      method: "POST",
+      headers: { "X-CSRFToken": CSRF,
+                 "Content-Type": "application/x-www-form-urlencoded" },
+      body: form,
+    });
+  }
+
+  async function poll() {
+    if (demo) { render(fakeTick()); return; }
+    try {
+      const r = await fetch(STATUS_URL, { cache: "no-store" });
+      if (r.ok) render(await r.json());
+    } catch (e) { /* network blip: keep the last view */ }
+  }
+
+  function perStudent(id, name) {
+    const what = prompt(
+      `${name}\n\nType:  allow   to permit a lookup for this student` +
+      `\n       pause   to stop monitoring them` +
+      `\n       back    to return them to monitoring`);
+    const map = { allow: "permitted", pause: "paused", back: "monitoring" };
+    const mode = map[(what || "").trim().toLowerCase()];
+    if (mode) post({ mode, attempt: id });
+  }
+
+  /* -------------------------------------------------- demo (no backend) */
+  const NAMES = ["Aditi S", "Rohan M", "Priya K", "Arjun V", "Sneha R",
+                 "Kabir J", "Meera T", "Dev P", "Ishita B", "Vikram N",
+                 "Ananya G", "Yash D"];
+  function startDemo() {
+    demo = true;
+    demoStudents = NAMES.map((n, i) => ({
+      id: i, name: n, state: "ok", flags: 0, submitted: false,
+    }));
+    $("demo").remove();
+  }
+  function fakeTick() {
+    demoStudents.forEach((s) => {
+      const r = Math.random();
+      if (s.state === "ok" && r < 0.04) s.state = "warning";
+      else if (s.state === "warning" && r < 0.35) { s.state = "flagged"; s.flags += 1; }
+      else if (s.state === "warning" && r > 0.85) s.state = "ok";
+      else if (s.state === "flagged" && r < 0.25) s.state = "ok";
+    });
+    return { mode: "monitoring", students: demoStudents };
+  }
+
+  /* ------------------------------------------------------------ wiring */
+  document.querySelectorAll(".mode").forEach((b) => {
+    b.onclick = () => setMode(b.dataset.mode);
+  });
+  $("demo").onclick = startDemo;
+
+  poll();
+  setInterval(poll, 3000);
+</script>
+{% endblock %}

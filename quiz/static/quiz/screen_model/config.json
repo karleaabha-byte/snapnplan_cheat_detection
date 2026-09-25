@@ -1,0 +1,18 @@
+{
+  "classes": [
+    "clean",
+    "ai_chat",
+    "document",
+    "messaging",
+    "search_web"
+  ],
+  "img_size": 224,
+  "model_kind": "graph",
+  "threshold": 0.65,
+  "threshold_synthetic": 0.5,
+  "threshold_source": "37 real screenshots (19 clean, 18 with a window)",
+  "preprocess": "squash",
+  "val_accuracy": null,
+  "external_recall": null,
+  "false_flag_rate": null
+}
