@@ -11,9 +11,11 @@ An ExamSession is identified by a short code the invigilator reads out, so no
 accounts are needed for a classroom demo.
 """
 import json
+import os
 import secrets
 from datetime import timedelta
 
+from django.conf import settings
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -25,10 +27,117 @@ from .models import ExamSession, ExamAttempt   # see models.py below
 MODES = {"monitoring", "permitted", "paused"}
 
 
+# Sample questions, so a session is sittable the moment it is created and the
+# proctoring can be demonstrated without a quiz pipeline in the way.
+#
+# TO USE YOUR OWN QUIZ: in exam_create below, replace DEMO_QUESTIONS with a
+# call to your generator, e.g.
+#
+#     from .pipeline import make_quiz
+#     questions = make_quiz(source_text, n=10)
+#
+# Each question needs `question`, `options` and `answer_index` (0-based).
+# exam_run.html also accepts `text`/`prompt` and `choices`, so most existing
+# shapes work unchanged.
+DEMO_QUESTIONS = [
+    {"question": "Which data structure gives O(1) average lookup by key?",
+     "options": ["Array", "Hash table", "Linked list", "Binary search tree"],
+     "answer_index": 1},
+    {"question": "What is the worst-case time complexity of quicksort?",
+     "options": ["O(n)", "O(n log n)", "O(n^2)", "O(log n)"],
+     "answer_index": 2},
+    {"question": "A stack is best described as:",
+     "options": ["First in, first out", "Last in, first out",
+                 "Sorted on insert", "Random access"],
+     "answer_index": 1},
+    {"question": "Which traversal of a binary search tree yields sorted order?",
+     "options": ["Pre-order", "In-order", "Post-order", "Level-order"],
+     "answer_index": 1},
+    {"question": "Big-O notation describes:",
+     "options": ["Exact running time", "An upper bound on growth",
+                 "Memory used", "Number of lines of code"],
+     "answer_index": 1},
+]
+
+
+# ------------------------------------------------------------- the gate ---
+#
+# WHAT THIS IS, AND WHAT IT IS NOT
+#
+# A shared passcode that stops a student wandering into /exam/new/ and
+# starting sessions. It is NOT authentication: everyone who knows it is the
+# same person as far as the app is concerned, it cannot be revoked for one
+# individual, and a determined student who watches an invigilator type it has
+# it forever.
+#
+# The production answer is Django's own auth with a staff check:
+#
+#     from django.contrib.auth.decorators import user_passes_test
+#     @user_passes_test(lambda u: u.is_staff)
+#     def exam_create(request): ...
+#
+# That gives real accounts, per-person revocation and an audit trail of who
+# started which exam. Say so plainly in the write-up rather than implying this
+# gate is more than it is.
+#
+# Note what was ALREADY protected before this gate existed: exam_dashboard and
+# exam_set_mode compare owner_key against the browser session, so knowing a
+# session code never let a student open the dashboard or pause the room. The
+# only gap was who may CREATE a session.
+
+MAX_TRIES = 5
+
+
+def _configured_passcode():
+    """settings.EXAM_PASSCODE, else the EXAM_PASSCODE env var, else None.
+
+    Returning None fails CLOSED - exam mode refuses to open rather than
+    falling back to a default passcode. A default would be worse than no gate
+    at all, because it would look protected while being public.
+    """
+    code = getattr(settings, "EXAM_PASSCODE", None) or os.environ.get(
+        "EXAM_PASSCODE", "")
+    return code.strip() or None
+
+
+def _gate(request):
+    """Returns a response if the visitor must be stopped, else None."""
+    passcode = _configured_passcode()
+    if passcode is None:
+        return render(request, "quiz/exam_gate.html", {"unconfigured": True})
+
+    if request.session.get("is_invigilator"):
+        return None
+
+    tries = request.session.get("exam_tries", 0)
+    if tries >= MAX_TRIES:
+        return render(request, "quiz/exam_gate.html", {"locked": True})
+
+    if request.method == "POST" and "passcode" in request.POST:
+        given = request.POST.get("passcode", "").strip()
+        # compare_digest rather than == so the comparison does not finish
+        # early on the first wrong character.
+        if secrets.compare_digest(given.encode("utf-8"),
+                                  passcode.encode("utf-8")):
+            request.session["is_invigilator"] = True
+            request.session["exam_tries"] = 0
+            return redirect("exam_create")
+        request.session["exam_tries"] = tries + 1
+        return render(request, "quiz/exam_gate.html",
+                      {"error": "That passcode is not right.",
+                       "left": MAX_TRIES - tries - 1})
+
+    return render(request, "quiz/exam_gate.html", {})
+
+
 # ----------------------------------------------------------- invigilator ---
 
 def exam_create(request):
     """Invigilator starts a session and gets a code to read to the room."""
+    blocked = _gate(request)
+    if blocked is not None:
+        return blocked
+
     if request.method != "POST":
         return render(request, "quiz/exam_create.html")
 
@@ -38,6 +147,7 @@ def exam_create(request):
         title=request.POST.get("title", "Midterm").strip() or "Midterm",
         minutes=max(1, min(minutes, 240)),
         owner_key=_owner_key(request),
+        questions=DEMO_QUESTIONS,      # <- swap for your own generator
     )
     return redirect("exam_dashboard", code=session.code)
 
