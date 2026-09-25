@@ -177,9 +177,31 @@
     stopped:   "Monitoring stopped",
   };
 
+  let lastState = "ok";
+
   function onState(s) {
+    lastState = s;
     $("bar").dataset.state = s;
     $("bar-msg").textContent = MSG[s] || s;
+  }
+
+  /* Live feedback between state changes. Without this the bar sits on
+     "Another window is visible" for ten seconds with nothing moving, and it
+     is impossible to tell working-but-waiting from broken — which is exactly
+     how it looked the first time this ran. */
+  function onTick(t) {
+    if (proctor && proctor.mode !== "monitoring") return;
+    if (t.detected && lastState !== "flagged") {
+      const s = Math.ceil(t.toFlag / 1000);
+      $("bar-msg").textContent = s > 0
+        ? `Another window is visible — recorded in ${s}s if it stays`
+        : "Another window is visible — close it now";
+    } else if (t.detected && lastState === "flagged") {
+      $("bar-msg").textContent =
+        "Another window is still visible and is being recorded";
+    } else if (!t.detected && lastState !== "flagged") {
+      $("bar-msg").textContent = MSG.ok;
+    }
   }
 
   /* Heartbeat: tells the server this student is alive and what the proctor is
@@ -205,12 +227,18 @@
     proctor = new Proctor({
       modelUrl: MODEL_URL,
       onState,
+      onTick,
+      // The model is ~10 MB. Say so, or the page looks frozen and the button
+      // gets clicked again.
+      onProgress: (msg) => { $("begin").textContent = msg + "…"; },
       // threshold, sampleMs etc. come from proctor.js DEFAULTS, which were
       // tuned on real screenshots — do not override them here.
     });
+    $("begin").textContent = "Waiting for you to pick a screen…";
     try {
       await proctor.start();
     } catch (e) {
+      $("begin").textContent = "Share screen & begin";
       $("gate-err").textContent = e.message ||
         "Could not start screen sharing. Please try again.";
       $("begin").disabled = false;

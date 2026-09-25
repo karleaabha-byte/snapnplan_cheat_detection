@@ -80,6 +80,7 @@ export class Proctor {
     this.mode = "monitoring";
     this.detectedSince = null;
     this.warned = false;
+    this.misses = 0;
     this.events = [];
     this.frames = 0;
     this.detections = 0;
@@ -147,13 +148,24 @@ export class Proctor {
    *  shaders and takes 1-3 seconds. Doing it here, before the exam starts,
    *  keeps the first real frame from being slow enough to miss. */
   async _loadModel() {
+    // The model is ~10 MB and the warm-up compiles WebGL shaders, so this
+    // takes several seconds on a first visit and longer on school wifi.
+    // Without progress the page looks broken, and the natural response is to
+    // click the button again.
+    const say = (msg, frac) => this.o.onProgress?.(msg, frac);
+    const opts = {
+      onProgress: (f) => say(`Downloading model ${Math.round(f * 100)}%`, f),
+    };
+
+    say("Downloading model", 0);
     try {
-      this.model = await tf.loadLayersModel(this.o.modelUrl);
-      this.modelKind = "layers";
-    } catch (e) {
-      this.model = await tf.loadGraphModel(this.o.modelUrl);
+      this.model = await tf.loadGraphModel(this.o.modelUrl, opts);
       this.modelKind = "graph";
+    } catch (e) {
+      this.model = await tf.loadLayersModel(this.o.modelUrl, opts);
+      this.modelKind = "layers";
     }
+    say("Preparing", 1);
     // Warm up (compiles WebGL shaders, 1-3s) and sanity-check in one go.
     //
     // A model fed doubly-normalised input sees an almost flat image whatever
@@ -230,6 +242,7 @@ export class Proctor {
     // legitimately open must be closed now or it is flagged from scratch.
     this.detectedSince = null;
     this.warned = false;
+    this.misses = 0;
 
     this._setState(mode === "monitoring" ? "ok" : mode);
   }
@@ -270,6 +283,21 @@ export class Proctor {
     }
 
     if (!detected) {
+      this.misses += 1;
+      // ONE stray clean frame is noise, not innocence. A window being dragged,
+      // a menu closing, a page repainting, a scroll that briefly hides the
+      // overlay - any of these can read clean for a single frame. Resetting
+      // the clock on the first miss means a flickering window never survives
+      // the 18 seconds needed to be recorded, which is exactly the window a
+      // student fidgeting with an open chat would produce.
+      //
+      // So a run only ends after two consecutive clean frames (~8 seconds).
+      if (this.detectedSince && this.misses < 2) {
+        this.o.onTick?.({ detected: false, heldMs: now - this.detectedSince,
+                          state: this.state, p });
+        return;
+      }
+
       if (this.detectedSince && this.warned) {
         this._record("warning_cleared",
           Math.round((now - this.detectedSince) / 1000));
@@ -277,11 +305,17 @@ export class Proctor {
       this.detectedSince = null;
       this.warned = false;
       if (this.state !== "flagged") this._setState("ok");
+      this.o.onTick?.({ detected: false, heldMs: 0, state: this.state, p });
       return;
     }
 
+    this.misses = 0;
     if (!this.detectedSince) this.detectedSince = now;
     const heldMs = now - this.detectedSince;
+    this.o.onTick?.({ detected: true, heldMs, state: this.state, p,
+                      label: this.lastLabel,
+                      toWarn: Math.max(0, this.o.warnAfterMs - heldMs),
+                      toFlag: Math.max(0, this.o.flagAfterMs - heldMs) });
 
     if (heldMs >= this.o.flagAfterMs) {
       this._record("other_window_visible", Math.round(heldMs / 1000),

@@ -12,6 +12,7 @@ accounts are needed for a classroom demo.
 """
 import json
 import os
+import re
 import secrets
 from datetime import timedelta
 
@@ -27,37 +28,32 @@ from .models import ExamSession, ExamAttempt   # see models.py below
 MODES = {"monitoring", "permitted", "paused"}
 
 
-# Sample questions, so a session is sittable the moment it is created and the
-# proctoring can be demonstrated without a quiz pipeline in the way.
+# Prefills the question box on the create page, so the format is obvious from
+# an example rather than from instructions nobody reads. The invigilator
+# replaces it with their own paper.
 #
-# TO USE YOUR OWN QUIZ: in exam_create below, replace DEMO_QUESTIONS with a
-# call to your generator, e.g.
-#
-#     from .pipeline import make_quiz
-#     questions = make_quiz(source_text, n=10)
-#
-# Each question needs `question`, `options` and `answer_index` (0-based).
-# exam_run.html also accepts `text`/`prompt` and `choices`, so most existing
-# shapes work unchanged.
-DEMO_QUESTIONS = [
-    {"question": "Which data structure gives O(1) average lookup by key?",
-     "options": ["Array", "Hash table", "Linked list", "Binary search tree"],
-     "answer_index": 1},
-    {"question": "What is the worst-case time complexity of quicksort?",
-     "options": ["O(n)", "O(n log n)", "O(n^2)", "O(log n)"],
-     "answer_index": 2},
-    {"question": "A stack is best described as:",
-     "options": ["First in, first out", "Last in, first out",
-                 "Sorted on insert", "Random access"],
-     "answer_index": 1},
-    {"question": "Which traversal of a binary search tree yields sorted order?",
-     "options": ["Pre-order", "In-order", "Post-order", "Level-order"],
-     "answer_index": 1},
-    {"question": "Big-O notation describes:",
-     "options": ["Exact running time", "An upper bound on growth",
-                 "Memory used", "Number of lines of code"],
-     "answer_index": 1},
-]
+# If you ever want questions generated instead of typed, exam_create just
+# needs a list of {question, options, answer_index} - swap parse_questions()
+# for a call to make_quiz() and nothing downstream changes.
+SAMPLE_TEXT = """\
+Which data structure gives O(1) average lookup by key?
+- Array
+* Hash table
+- Linked list
+- Binary search tree
+
+What is the worst-case time complexity of quicksort?
+- O(n)
+- O(n log n)
+* O(n^2)
+- O(log n)
+
+Which traversal of a binary search tree yields sorted order?
+- Pre-order
+* In-order
+- Post-order
+- Level-order
+"""
 
 
 # ------------------------------------------------------------- the gate ---
@@ -132,6 +128,87 @@ def _gate(request):
 
 # ----------------------------------------------------------- invigilator ---
 
+def parse_questions(text):
+    """Turn the invigilator's typed paper into question dicts.
+
+    Format - one blank line between questions, a star on the right answer:
+
+        Which data structure gives O(1) average lookup by key?
+        - Array
+        * Hash table
+        - Linked list
+
+    Deliberately forgiving: -, *, bullets and letter/number prefixes all work
+    as option markers, and the star may sit anywhere before the text. The one
+    strict rule is exactly one starred option per question, because a paper
+    with two right answers or none is a mistake worth stopping on rather than
+    guessing about.
+
+    Returns (questions, errors). Errors are phrased for someone typing a
+    paper, not someone reading a stack trace.
+    """
+    MARKER = re.compile(r"^(?:[-–—•]|\(?[A-Za-z0-9][).])\s*")
+
+    def read_option(line):
+        """-> (is_correct, text) or None if this is not an option line.
+
+        Accepts a star, a marker, or both, in either order:
+            * Hash table        - Paris        b) *Paris       2. * right
+        A line with NEITHER a star nor a marker is not an option - that is
+        what catches a stray sentence typed among the choices.
+        """
+        s, star = line.strip(), False
+        if s.startswith("*"):
+            star, s = True, s[1:].strip()
+        m = MARKER.match(s)
+        if m:
+            s = s[m.end():].strip()
+        if s.startswith("*"):
+            star, s = True, s[1:].strip()
+        if not s or not (star or m):
+            return None
+        return star, s
+
+    questions, errors = [], []
+    blocks = [b for b in re.split(r"\n\s*\n", text.strip()) if b.strip()]
+
+    for n, block in enumerate(blocks, 1):
+        lines = [l for l in block.splitlines() if l.strip()]
+        if len(lines) < 2:
+            errors.append(f"Question {n}: no options - list them underneath, "
+                          "one per line, starting with - or *")
+            continue
+
+        prompt, opts, correct = lines[0].strip(), [], []
+        for line in lines[1:]:
+            got = read_option(line)
+            if got is None:
+                errors.append(f"Question {n}: could not read the line "
+                              f"“{line.strip()[:48]}” - options start "
+                              "with - or *")
+                continue
+            starred, text = got
+            if starred:
+                correct.append(len(opts))
+            opts.append(text)
+
+        if len(opts) < 2:
+            errors.append(f"Question {n}: needs at least two options")
+        elif len(correct) == 0:
+            errors.append(f"Question {n}: no right answer marked - put a * at "
+                          "the start of the correct option")
+        elif len(correct) > 1:
+            errors.append(f"Question {n}: {len(correct)} options are starred - "
+                          "mark exactly one")
+        else:
+            questions.append({"question": prompt, "options": opts,
+                              "answer_index": correct[0]})
+
+    if not questions and not errors:
+        errors.append("No questions found.")
+    return questions, errors
+
+
 def exam_create(request):
     """Invigilator starts a session and gets a code to read to the room."""
     blocked = _gate(request)
@@ -139,7 +216,21 @@ def exam_create(request):
         return blocked
 
     if request.method != "POST":
-        return render(request, "quiz/exam_create.html")
+        return render(request, "quiz/exam_create.html",
+                      {"sample": SAMPLE_TEXT})
+
+    raw = request.POST.get("questions", "")
+    questions, errors = parse_questions(raw)
+    if errors:
+        # Hand back what they typed. Losing a paper someone just typed out
+        # because of one missing star would be unforgivable.
+        return render(request, "quiz/exam_create.html", {
+            "errors": errors,
+            "questions_text": raw,
+            "title": request.POST.get("title", ""),
+            "minutes": request.POST.get("minutes", "30"),
+            "sample": SAMPLE_TEXT,
+        })
 
     minutes = int(request.POST.get("minutes", 30) or 30)
     session = ExamSession.objects.create(
@@ -147,7 +238,7 @@ def exam_create(request):
         title=request.POST.get("title", "Midterm").strip() or "Midterm",
         minutes=max(1, min(minutes, 240)),
         owner_key=_owner_key(request),
-        questions=DEMO_QUESTIONS,      # <- swap for your own generator
+        questions=questions,
     )
     return redirect("exam_dashboard", code=session.code)
 
