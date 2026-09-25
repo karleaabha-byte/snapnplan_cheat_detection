@@ -220,14 +220,22 @@ def exam_create(request):
                       {"sample": SAMPLE_TEXT})
 
     raw = request.POST.get("questions", "")
+    title = request.POST.get("title", "").strip()
     questions, errors = parse_questions(raw)
+
+    # The field is `required` in the form, so this only fires on a hand-made
+    # POST - but naming an exam for them is worse than asking. The students
+    # read this off their screen.
+    if not title:
+        errors.insert(0, "Give the exam a name.")
+
     if errors:
         # Hand back what they typed. Losing a paper someone just typed out
         # because of one missing star would be unforgivable.
         return render(request, "quiz/exam_create.html", {
             "errors": errors,
             "questions_text": raw,
-            "title": request.POST.get("title", ""),
+            "title": title,
             "minutes": request.POST.get("minutes", "30"),
             "sample": SAMPLE_TEXT,
         })
@@ -235,7 +243,7 @@ def exam_create(request):
     minutes = int(request.POST.get("minutes", 30) or 30)
     session = ExamSession.objects.create(
         code=secrets.token_hex(3).upper(),      # e.g. 'A3F19C'
-        title=request.POST.get("title", "Midterm").strip() or "Midterm",
+        title=title,
         minutes=max(1, min(minutes, 240)),
         owner_key=_owner_key(request),
         questions=questions,

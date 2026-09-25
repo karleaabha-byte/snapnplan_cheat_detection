@@ -20,15 +20,6 @@
   .row { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; }
   @media (max-width: 520px) { .row { grid-template-columns: 1fr; } }
 
-  .howto { background: var(--card); border: 1px solid var(--line);
-           border-radius: 14px; padding: 14px 18px; margin-bottom: 18px;
-           font-size: .88rem; line-height: 1.7; }
-  .howto b { display: block; margin-bottom: 6px; }
-  .howto pre { background: var(--bg); border: 1px solid var(--line);
-               border-radius: 10px; padding: 12px 14px; margin: 10px 0 0;
-               font-size: .84rem; line-height: 1.6; overflow-x: auto; }
-  .howto .star { color: var(--accent); font-weight: 800; }
-
   .errors { background: var(--bad-soft); border: 1px solid var(--bad);
             border-radius: 14px; padding: 14px 18px; margin-bottom: 18px; }
   .errors b { color: var(--bad); display: block; margin-bottom: 6px; }
@@ -55,17 +46,6 @@
     </div>
   {% endif %}
 
-  <div class="howto">
-    <b>Writing the paper</b>
-    Question on its own line, options underneath, a
-    <span class="star">*</span> on the right answer. Leave a blank line
-    between questions.
-    <pre>Which data structure gives O(1) lookup?
-- Array
-<span class="star">*</span> Hash table
-- Linked list</pre>
-  </div>
-
   <form method="post">
     {% csrf_token %}
 
@@ -73,8 +53,7 @@
       <div class="field">
         <label for="title">Exam name</label>
         <input id="title" name="title" maxlength="80" required
-               placeholder="Midterm &mdash; Data Structures"
-               value="{{ title|default:'Midterm' }}">
+               value="{{ title|default:'' }}">
         <div class="hint">Students see this at the top of their screen.</div>
       </div>
 
@@ -90,8 +69,8 @@
       <label for="questions">Questions</label>
       <textarea id="questions" name="questions" required
                 spellcheck="false">{{ questions_text|default:sample }}</textarea>
-      <div class="hint">Replace the examples with your own. Any number of
-         questions.</div>
+      <div class="hint">Replace the examples with your own. Blank line between
+         questions, <b>*</b> on the right answer. Any number of questions.</div>
     </div>
 
     <button class="btn" type="submit">Create session</button>
