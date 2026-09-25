@@ -33,7 +33,7 @@
     {% csrf_token %}
     <label for="name">Your full name, as it appears on the roll</label>
     <input id="name" name="name" maxlength="60" required autofocus
-           autocomplete="name" placeholder="Aabha Karle">
+           autocomplete="off">
     <button class="btn" type="submit">Continue</button>
     {% if error %}<p class="err">{{ error }}</p>{% endif %}
   </form>

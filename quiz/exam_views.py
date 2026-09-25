@@ -240,6 +240,21 @@ def exam_create(request):
         owner_key=_owner_key(request),
         questions=questions,
     )
+
+    # The passcode buys ONE session, not a logged-in browser.
+    #
+    # Invigilators work on shared lab machines. A browser that stays trusted
+    # after the invigilator walks away is a browser any student can sit down
+    # at and start an exam from. Clearing it here means the passcode is asked
+    # for every single time an exam is started, which is the only moment it
+    # actually matters.
+    #
+    # This does NOT log them out of the session they just made: the dashboard
+    # and the mode controls authorise against owner_key, which is separate and
+    # still in the session. They keep control of this exam, and have no
+    # standing to create the next one.
+    request.session.pop("is_invigilator", None)
+    request.session.pop("exam_tries", None)
     return redirect("exam_dashboard", code=session.code)
 
 
